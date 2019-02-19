@@ -1,5 +1,7 @@
 const HIGH: u32 = 0x8000_0000;
 
+use std::slice;
+
 /// Contains a list of 16 children node IDs.
 ///
 /// `16 * 32` (`512`) bits (`64` bytes) is the size of cache lines in Intel
@@ -51,6 +53,15 @@ impl BinTrie {
     ///    key.
     /// `F(item, n)` - A function that must be able to look up the nth group
     ///    of `4` bits from a previously inserted `u32`.
+    ///
+    /// ```
+    /// # use bintrie::BinTrie;
+    /// let mut trie = BinTrie::new();
+    /// // Note that the item, the key, and the lookup key all obey the
+    /// // unsafe requirements.
+    /// trie.insert(5, |_| 0, |_, _| 0);
+    /// assert_eq!(trie.items().collect::<Vec<u32>>(), vec![5]);
+    /// ```
     #[inline(always)]
     pub fn insert<K, F>(&mut self, item: u32, key: K, lookup: F)
     where
@@ -96,6 +107,7 @@ impl BinTrie {
     /// unsafe {
     ///     trie.insert_unchecked(5, |_| 0, |_, _| 0);
     /// }
+    /// assert_eq!(trie.items().collect::<Vec<u32>>(), vec![5]);
     /// ```
     #[inline(always)]
     pub unsafe fn insert_unchecked<K, F>(&mut self, item: u32, key: K, lookup: F)
@@ -173,6 +185,19 @@ impl BinTrie {
                 .get_unchecked_mut(position) = item | HIGH;
         }
     }
+
+    /// Get an iterator over the items added to the trie.
+    ///
+    /// ```
+    /// # use bintrie::BinTrie;
+    /// let mut trie = BinTrie::new();
+    /// trie.insert(3, |_| 0, |_, _| 0);
+    /// let mut items = trie.items();
+    /// assert_eq!(trie.items().collect::<Vec<u32>>(), vec![3]);
+    /// ```
+    pub fn items<'a>(&'a self) -> impl Iterator<Item = u32> + 'a {
+        Iter::new(self)
+    }
 }
 
 impl Default for BinTrie {
@@ -180,6 +205,50 @@ impl Default for BinTrie {
         Self {
             internals: vec![Internal::default()],
             depth: 8192,
+        }
+    }
+}
+
+struct Iter<'a> {
+    trie: &'a BinTrie,
+    indices: Vec<slice::Iter<'a, u32>>,
+}
+
+impl<'a> Iter<'a> {
+    fn new(trie: &'a BinTrie) -> Self {
+        Self {
+            trie,
+            indices: vec![trie.internals[0].0.iter()],
+        }
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = u32;
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            // Get the current slice. If there is none, then we return `None`.
+            let mut current = self.indices.pop()?;
+            // Get the next item in the slice or continue the loop if its empty.
+            let n = if let Some(n) = current.next() {
+                // Push the slice back.
+                self.indices.push(current);
+                n
+            } else {
+                continue;
+            };
+            // Check what kind of node it is.
+            match n {
+                // Empty node
+                0 => {}
+                // Leaf node
+                n if n & HIGH != 0 => {
+                    return Some(n & !HIGH);
+                }
+                // Internal node
+                &n => self.indices.push(self.trie.internals[n as usize].0.iter()),
+            }
         }
     }
 }
