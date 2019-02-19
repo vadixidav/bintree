@@ -186,6 +186,79 @@ impl BinTrie {
         }
     }
 
+    /// Perform a lookup for a particular item.
+    ///
+    /// `K(n)` - A function that provides the `n`th group of `4` bits for the
+    ///    key.
+    ///
+    /// ```
+    /// # use bintrie::BinTrie;
+    /// let mut trie = BinTrie::new();
+    /// // Note that the item, the key, and the lookup key all obey the
+    /// // unsafe requirements.
+    /// let key = |_| 0;
+    /// let lookup = |_, _| 0;
+    /// trie.insert(5, key, lookup);
+    /// assert_eq!(trie.get(key), Some(5));
+    /// assert_eq!(trie.get(|_| 1), None);
+    /// ```
+    pub fn get<K>(&self, key: K) -> Option<u32>
+    where
+        K: Fn(u32) -> usize,
+    {
+        unsafe {
+            self.get_unchecked(|n| {
+                let out = key(n);
+                assert!(out < 16);
+                out
+            })
+        }
+    }
+
+    /// Perform a lookup for a particular item.
+    ///
+    /// `K(n)` - A function that provides the `n`th group of `4` bits for the
+    ///    key.
+    ///
+    /// This is unsafe to call because `key` is assumed to return indices
+    /// below `16`.
+    ///
+    /// ```
+    /// # use bintrie::BinTrie;
+    /// let mut trie = BinTrie::new();
+    /// // Note that the item, the key, and the lookup key all obey the
+    /// // unsafe requirements.
+    /// let key = |_| 0;
+    /// let lookup = |_, _| 0;
+    /// trie.insert(5, key, lookup);
+    /// unsafe {
+    ///     assert_eq!(trie.get_unchecked(key), Some(5));
+    ///     assert_eq!(trie.get_unchecked(|_| 1), None);
+    /// }
+    /// ```
+    pub unsafe fn get_unchecked<K>(&self, key: K) -> Option<u32>
+    where
+        K: Fn(u32) -> usize,
+    {
+        let mut index = 0;
+        for i in 0..self.depth {
+            match *self.internals.get_unchecked(index).0.get_unchecked(key(i)) {
+                // Empty node encountered.
+                0 => {
+                    return None;
+                }
+                // Leaf node encountered.
+                m if m & HIGH != 0 => return Some(m & !HIGH),
+                // Internal node encountered.
+                m => {
+                    // Move to the internal node.
+                    index = m as usize;
+                }
+            }
+        }
+        None
+    }
+
     /// Get an iterator over the items added to the trie.
     ///
     /// ```
