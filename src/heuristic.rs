@@ -102,6 +102,7 @@ where
 {
     type Item = usize;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let f = self.f.clone();
         (&mut self.iter).find(move |&n| (f.clone())(n))
