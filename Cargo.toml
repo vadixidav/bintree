@@ -2,4 +2,7 @@
 name = "bintrie"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
+documentation = "https://docs.rs/bintrie/"
+repositiory = "https://github.com/vadixidav/bintrie"
+license = "MIT"
 edition = "2018"
