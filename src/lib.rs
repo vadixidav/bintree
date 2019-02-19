@@ -1,52 +1,10 @@
+mod heuristic;
+
+pub use heuristic::*;
+
 const HIGH: u32 = 0x8000_0000;
 
 use std::slice;
-
-/// The `Heuristic` chooses which of the `16` groups to explore next.
-/// This is useful for searching spaces for nearest neighbors because you can
-/// check the nearest bits first.
-///
-/// This is cloned right before entering a `group`, so it is expected that
-/// `choose` update the state of the `Heuristic`.
-pub trait Heuristic: Clone {
-    type Iter: Iterator<Item = usize>;
-
-    /// This is passed the `group` (guaranteed to be less than `16`).
-    fn enter(&mut self, group: usize);
-
-    /// Must return an iterator which returns values below `16`, otherwise panics.
-    fn iter(&self) -> Self::Iter;
-}
-
-/// This is the same as `Heuristic` except that the returned group indices
-/// are unchecked. It is therefore unsafe to implement. See the documentation
-/// for `Heuristic`.
-pub unsafe trait UncheckedHeuristic: Clone {
-    type UncheckedIter: Iterator<Item = usize>;
-    /// This is passed the `group` (guaranteed to be less than `16`).
-    fn enter_unchecked(&mut self, group: usize);
-
-    /// Must return an iterator which returns values below `16`, otherwise panics.
-    fn iter_unchecked(&self) -> Self::UncheckedIter;
-}
-
-unsafe impl<T> UncheckedHeuristic for T
-where
-    T: Heuristic,
-{
-    type UncheckedIter = std::iter::Inspect<<Self as Heuristic>::Iter, fn(&usize)>;
-
-    #[inline(always)]
-    fn enter_unchecked(&mut self, group: usize) {
-        // Needs no special checks.
-        self.enter(group);
-    }
-
-    #[inline(always)]
-    fn iter_unchecked(&self) -> Self::UncheckedIter {
-        self.iter().inspect(|&g| assert!(g < 16))
-    }
-}
 
 /// Contains a list of 16 children node IDs.
 ///
@@ -202,6 +160,7 @@ impl BinTrie {
                         .get_unchecked_mut(position) = new_index;
                     // Fallthrough to the next iteration where it will either
                     // be expanded or hit the empty leaf node position.
+                    index = new_index as usize;
                 }
                 // Internal node encountered.
                 m => {
@@ -313,7 +272,6 @@ impl BinTrie {
     /// # use bintrie::BinTrie;
     /// let mut trie = BinTrie::new();
     /// trie.insert(3, |_| 0, |_, _| 0);
-    /// let mut items = trie.items();
     /// assert_eq!(trie.items().collect::<Vec<u32>>(), vec![3]);
     /// ```
     pub fn items<'a>(&'a self) -> impl Iterator<Item = u32> + 'a {
@@ -328,11 +286,35 @@ impl BinTrie {
     /// `heuristic` must implement `UncheckedHeuristic`, which the normal
     /// `Heuristic` trait satisfies. Implement `Heuristic` unless you are sure
     /// that you need `UncheckedHeuristic`, which is **unsafe** to implement.
+    ///
+    /// ```
+    /// # use bintrie::{BinTrie, FnHeuristic};
+    /// let mut trie = BinTrie::new();
+    /// let lookup = |n, l| match n {
+    ///     3 => 0,
+    ///     5 => if l == 1 { 1 } else {0},
+    ///     _ => 0,
+    /// };
+    /// trie.insert(3, |n| lookup(3, n), lookup);
+    /// trie.insert(5, |n| lookup(5, n), lookup);
+    /// assert_eq!(trie.explore(FnHeuristic(|n| n < 2)).collect::<Vec<u32>>(), vec![3, 5]);
+    /// assert_eq!(trie.explore(FnHeuristic(|n| n == 0)).collect::<Vec<u32>>(), vec![3]);
+    /// let mut level = 0;
+    /// assert_eq!(trie.explore(FnHeuristic(move |n| {
+    ///     level += 1;
+    ///     match level {
+    ///         1 => n == 0,
+    ///         2 => n == 1,
+    ///         _ => false,
+    ///     }
+    /// })).collect::<Vec<u32>>(), vec![5]);
+    /// ```
     pub fn explore<'a, H>(&'a self, heuristic: H) -> impl Iterator<Item = u32> + 'a
     where
-        H: UncheckedHeuristic + 'a,
+        H: IntoHeuristic,
+        H::Heuristic: 'a,
     {
-        ExploreIter::new(self, heuristic)
+        ExploreIter::new(self, heuristic.into_heuristic())
     }
 }
 
