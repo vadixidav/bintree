@@ -21,19 +21,21 @@ pub struct BinTrie {
 }
 
 impl BinTrie {
-    /// Makes a new tree with a maximum `depth` of `8192`.
+    /// Makes a new trie with a maximum `depth` of `8192`.
     ///
     /// ```
-    /// let tree = Tree::new();
+    /// # use bintrie::BinTrie;
+    /// let trie = BinTrie::new();
     /// ```
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// Makes a new tree with a given maximum `depth`.
+    /// Makes a new trie with a given maximum `depth`.
     ///
     /// ```
-    /// let tree = Tree::new_depth(128);
+    /// # use bintrie::BinTrie;
+    /// let trie = BinTrie::new_depth(128);
     /// ```
     pub fn new_depth(depth: u32) -> Self {
         assert!(depth > 0);
@@ -77,13 +79,24 @@ impl BinTrie {
     ///
     /// This version is unsafe because it doesn't verify that the output
     /// of `K` and `F` are below `16`. It also doesn't verify that the
-    /// `item` doesn't have its most significant bit set. It still asserts
+    /// `item` doesn't have its most significant bit set. Ensure these
+    /// conditions are met before calling this. It still asserts
     /// that there aren't too many internal nodes.
     ///
     /// `K(n)` - A function that provides the `n`th group of `4` bits for the
     ///    key.
     /// `F(item, n)` - A function that must be able to look up the nth group
     ///    of `4` bits from a previously inserted `u32`.
+    ///
+    /// ```
+    /// # use bintrie::BinTrie;
+    /// let mut trie = BinTrie::new();
+    /// // Note that the item, the key, and the lookup key all obey the
+    /// // unsafe requirements.
+    /// unsafe {
+    ///     trie.insert_unchecked(5, |_| 0, |_, _| 0);
+    /// }
+    /// ```
     #[inline(always)]
     pub unsafe fn insert_unchecked<K, F>(&mut self, item: u32, key: K, lookup: F)
     where
