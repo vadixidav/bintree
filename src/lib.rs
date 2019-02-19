@@ -63,10 +63,10 @@ impl BinTrie {
     /// assert_eq!(trie.items().collect::<Vec<u32>>(), vec![5]);
     /// ```
     #[inline(always)]
-    pub fn insert<K, F>(&mut self, item: u32, key: K, lookup: F)
+    pub fn insert<K, F>(&mut self, item: u32, mut key: K, mut lookup: F)
     where
-        K: Fn(u32) -> usize,
-        F: Fn(u32, u32) -> usize,
+        K: FnMut(u32) -> usize,
+        F: FnMut(u32, u32) -> usize,
     {
         assert!(item & HIGH == 0);
         unsafe {
@@ -110,10 +110,10 @@ impl BinTrie {
     /// assert_eq!(trie.items().collect::<Vec<u32>>(), vec![5]);
     /// ```
     #[inline(always)]
-    pub unsafe fn insert_unchecked<K, F>(&mut self, item: u32, key: K, lookup: F)
+    pub unsafe fn insert_unchecked<K, F>(&mut self, item: u32, mut key: K, mut lookup: F)
     where
-        K: Fn(u32) -> usize,
-        F: Fn(u32, u32) -> usize,
+        K: FnMut(u32) -> usize,
+        F: FnMut(u32, u32) -> usize,
     {
         let mut index = 0;
         for i in 0..self.depth - 1 {
@@ -202,9 +202,9 @@ impl BinTrie {
     /// assert_eq!(trie.get(key), Some(5));
     /// assert_eq!(trie.get(|_| 1), None);
     /// ```
-    pub fn get<K>(&self, key: K) -> Option<u32>
+    pub fn get<K>(&self, mut key: K) -> Option<u32>
     where
-        K: Fn(u32) -> usize,
+        K: FnMut(u32) -> usize,
     {
         unsafe {
             self.get_unchecked(|n| {
@@ -236,9 +236,9 @@ impl BinTrie {
     ///     assert_eq!(trie.get_unchecked(|_| 1), None);
     /// }
     /// ```
-    pub unsafe fn get_unchecked<K>(&self, key: K) -> Option<u32>
+    pub unsafe fn get_unchecked<K>(&self, mut key: K) -> Option<u32>
     where
-        K: Fn(u32) -> usize,
+        K: FnMut(u32) -> usize,
     {
         let mut index = 0;
         for i in 0..self.depth {
