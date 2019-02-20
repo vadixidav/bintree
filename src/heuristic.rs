@@ -1,58 +1,34 @@
-/// The `Heuristic` chooses which of the `16` groups to explore next.
-/// This is useful for searching spaces for nearest neighbors because you can
-/// check the nearest bits first.
+/// The `Heuristic` chooses which side to explore next.
 ///
-/// This is cloned right before entering a `group`, so it is expected that
-/// `choose` update the state of the `Heuristic`.
+/// This is not useful for finding perfect nearest neighbors because
+/// it can take a path first that eliminates another better match in
+/// another branch. This will work well to find things of a particular
+/// distance, which is useful for discrete nearest neighbor searches
+/// in a given radius. It is also useful to find all things within a
+/// given radius, but the outputs will only be approximately ordered with
+/// respect to distance.
+///
+/// This is cloned right before entering a `side`, so it is expected that
+/// `enter` updates the state of the `Heuristic`.
 pub trait Heuristic: Clone {
-    type Iter: Iterator<Item = usize>;
+    type Iter: Iterator<Item = bool>;
 
-    /// This is passed the `group` (guaranteed to be less than `16`).
-    fn enter(&mut self, group: usize);
+    /// This is passed the `side`.
+    fn enter(&mut self, side: bool);
 
     /// Must return an iterator which returns values below `16`, otherwise panics.
     fn iter(&self) -> Self::Iter;
 }
 
-/// This is the same as `Heuristic` except that the returned group indices
-/// are unchecked. It is therefore unsafe to implement. See the documentation
-/// for `Heuristic`.
-pub unsafe trait UncheckedHeuristic: Clone {
-    type UncheckedIter: Iterator<Item = usize>;
-    /// This is passed the `group` (guaranteed to be less than `16`).
-    fn enter_unchecked(&mut self, group: usize);
-
-    /// Must return an iterator which returns values below `16`, otherwise panics.
-    fn iter_unchecked(&self) -> Self::UncheckedIter;
-}
-
-unsafe impl<T> UncheckedHeuristic for T
-where
-    T: Heuristic,
-{
-    type UncheckedIter = std::iter::Inspect<<Self as Heuristic>::Iter, fn(&usize)>;
-
-    #[inline(always)]
-    fn enter_unchecked(&mut self, group: usize) {
-        // Needs no special checks.
-        self.enter(group);
-    }
-
-    #[inline(always)]
-    fn iter_unchecked(&self) -> Self::UncheckedIter {
-        self.iter().inspect(|&g| assert!(g < 16))
-    }
-}
-
 pub trait IntoHeuristic {
-    type Heuristic: UncheckedHeuristic;
+    type Heuristic: Heuristic;
 
     fn into_heuristic(self) -> Self::Heuristic;
 }
 
 impl<H> IntoHeuristic for H
 where
-    H: UncheckedHeuristic,
+    H: Heuristic,
 {
     type Heuristic = Self;
 
@@ -62,49 +38,92 @@ where
     }
 }
 
-/// Wrap a type with the bound `F: FnMut(usize) -> bool + Clone` and
-/// this will implement `UncheckedHeuristic`. The function will be cloned
+/// Chooses whether to enter a path or not.
+///
+/// Wrap a type with the bound `F: FnMut(bool) -> bool + Clone` and
+/// this will implement `Heuristic`. The function will be cloned
 /// internally so that from the function's point of view it is being called
-/// in the order it descends in. It is passed the group that is being entered
+/// in the order it descends in. It is passed the side that is being entered
 /// and returns whether or not it would like to enter.
+///
+/// This is useful when looking for items with a discrete distance.
 #[derive(Clone)]
-pub struct FnHeuristic<F>(pub F);
+pub struct FilterHeuristic<F>(pub F);
 
-unsafe impl<F> UncheckedHeuristic for FnHeuristic<F>
+impl<F> Heuristic for FilterHeuristic<F>
 where
-    F: FnMut(usize) -> bool + Clone,
+    F: FnMut(bool) -> bool + Clone,
 {
-    type UncheckedIter = FnHeuristicIter<F>;
+    type Iter = FilterHeuristicIter<F>;
 
     #[inline(always)]
-    fn enter_unchecked(&mut self, group: usize) {
-        self.0(group);
+    fn enter(&mut self, side: bool) {
+        self.0(side);
     }
 
     #[inline(always)]
-    fn iter_unchecked(&self) -> Self::UncheckedIter {
-        FnHeuristicIter {
+    fn iter(&self) -> Self::Iter {
+        FilterHeuristicIter {
             f: self.0.clone(),
-            iter: 0..16,
+            iter: [false, true].iter(),
         }
     }
 }
 
 #[doc(hidden)]
-pub struct FnHeuristicIter<F> {
+pub struct FilterHeuristicIter<F> {
     f: F,
-    iter: std::ops::Range<usize>,
+    iter: std::slice::Iter<'static, bool>,
 }
 
-impl<F> Iterator for FnHeuristicIter<F>
+impl<F> Iterator for FilterHeuristicIter<F>
 where
-    F: FnMut(usize) -> bool + Clone,
+    F: FnMut(bool) -> bool + Clone,
 {
-    type Item = usize;
+    type Item = bool;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let f = self.f.clone();
-        (&mut self.iter).find(move |&n| (f.clone())(n))
+        (&mut self.iter).cloned().find(move |&n| (f.clone())(n))
+    }
+}
+
+/// Chooses paths to search down.
+///
+/// Wrap a type with the bound `F: FnMut(bool) -> bool + Clone` and
+/// this will implement `Heuristic`. The second argument has to be the first
+/// choice. The function will be cloned internally so that from the function's
+/// point of view it is being called in the order it descends in. It is passed
+/// the side that is being entered and returns which side it would like to
+/// enter next.
+///
+/// This is not particularly useful for most applications, but if you want
+/// to search different halves of a binary tree first, this is correct.
+/// This could be used to make an approximate nearest-neighbor (ANN) solution,
+/// but the quality of the match would then be fixed and depend on which bits
+/// differed between two matches (more significant bits differing would throw
+/// it out).
+#[derive(Clone)]
+pub struct SearchHeuristic<F>(pub F, pub bool);
+
+impl<F> Heuristic for SearchHeuristic<F>
+where
+    F: FnMut(bool) -> bool + Clone,
+{
+    type Iter = std::iter::Cloned<std::slice::Iter<'static, bool>>;
+
+    #[inline(always)]
+    fn enter(&mut self, side: bool) {
+        self.1 = self.0(side);
+    }
+
+    #[inline(always)]
+    fn iter(&self) -> Self::Iter {
+        if self.1 {
+            [true, false].iter().cloned()
+        } else {
+            [false, true].iter().cloned()
+        }
     }
 }
