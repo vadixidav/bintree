@@ -1,9 +1,9 @@
 [package]
 name = "bintrie"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 description = "A performant binary trie data structure that doesnt store data or keys"
-keywords = ["binary", "trie", "btree"]
+keywords = ["binary", "trie"]
 documentation = "https://docs.rs/bintrie/"
 repositiory = "https://github.com/vadixidav/bintrie"
 license = "MIT"
